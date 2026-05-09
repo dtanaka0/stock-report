@@ -4,3 +4,4 @@ requests==2.31.0
 markdown==3.6
 yfinance>=0.2.54
 curl_cffi>=0.7.0
+matplotlib==3.9.0
