@@ -1,4 +1,3 @@
-import yfinance as yf
 import anthropic
 import smtplib
 import os
@@ -23,46 +22,64 @@ INDUSTRIES = {
     "宇宙・防衛関連": "space+defense+industry+2026",
 }
 
-GMAIL_ADDRESS     = os.environ.get("GMAIL_ADDRESS")
-GMAIL_PASSWORD    = os.environ.get("GMAIL_PASSWORD")
-TO_ADDRESS        = os.environ.get("TO_ADDRESS")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
+GMAIL_PASSWORD     = os.environ.get("GMAIL_PASSWORD")
+TO_ADDRESS         = os.environ.get("TO_ADDRESS")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY")
+ALPHA_VANTAGE_KEY  = os.environ.get("ALPHA_VANTAGE_KEY")
 
 # ============================================================
-# 1. 株価データ取得
+# 1. 株価データ取得（Alpha Vantage）
 # ============================================================
 
 def get_stock_data(ticker, name):
+    """Alpha Vantage APIで最新株価を取得（直近取引日のデータ）"""
     try:
-        stock = yf.Ticker(ticker)
-        hist  = stock.history(period="5d", auto_adjust=True)
-        if hist.empty:
-            return {"name": name, "ticker": ticker, "error": "データなし（市場休場の可能性）"}
-        latest = hist.iloc[-1]
-        prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
-        change     = float(latest["Close"]) - float(prev["Close"])
-        change_pct = (change / float(prev["Close"])) * 100
+        url = (
+            f"https://www.alphavantage.co/query"
+            f"?function=GLOBAL_QUOTE"
+            f"&symbol={ticker}"
+            f"&apikey={ALPHA_VANTAGE_KEY}"
+        )
+        response = requests.get(url, timeout=10)
+        data     = response.json()
+
+        quote = data.get("Global Quote", {})
+
+        if not quote or quote.get("05. price") is None:
+            return {"name": name, "ticker": ticker, "error": "データ取得失敗"}
+
+        price      = float(quote.get("05. price", 0))
+        change     = float(quote.get("09. change", 0))
+        change_pct = quote.get("10. change percent", "0%").replace("%", "")
+        volume     = int(quote.get("06. volume", 0))
+        high       = float(quote.get("03. high", 0))
+        low        = float(quote.get("04. low", 0))
+        prev_close = float(quote.get("08. previous close", 0))
+        latest_day = quote.get("07. latest trading day", "不明")
+
         return {
-            "name":       name,
-            "ticker":     ticker,
-            "price":      round(float(latest["Close"]), 2),
-            "change":     round(change, 2),
-            "change_pct": round(change_pct, 2),
-            "volume":     int(latest["Volume"]),
-            "ma5":        round(float(hist["Close"].mean()), 2),
-            "5d_high":    round(float(hist["High"].max()), 2),
-            "5d_low":     round(float(hist["Low"].min()), 2),
+            "name":         name,
+            "ticker":       ticker,
+            "price":        round(price, 2),
+            "change":       round(change, 2),
+            "change_pct":   round(float(change_pct), 2),
+            "volume":       volume,
+            "high":         round(high, 2),
+            "low":          round(low, 2),
+            "prev_close":   round(prev_close, 2),
+            "latest_day":   latest_day,
         }
+
     except Exception as e:
         return {"name": name, "ticker": ticker, "error": str(e)}
 
 # ============================================================
-# 2. ニュース取得（スペースを+に置換してURLエラーを回避）
+# 2. ニュース取得（Google News RSS）
 # ============================================================
 
 def get_news(query, max_items=5):
     try:
-        # スペースを+に変換（URLエンコード）
         safe_query = query.replace(" ", "+")
         url  = f"https://news.google.com/rss/search?q={safe_query}&hl=ja&gl=JP&ceid=JP:ja"
         feed = feedparser.parse(url)
@@ -89,7 +106,7 @@ def generate_report(stocks_data, news_data, industry_news):
 ## 今日の日付
 {today}
 
-## 株価データ（直近5営業日）
+## 株価データ（直近取引日）
 {json.dumps(stocks_data, ensure_ascii=False, indent=2)}
 
 ## 銘柄別ニュース
@@ -155,25 +172,32 @@ def send_email(report):
 def main():
     print("📈 株式レポート生成開始...")
 
+    # 1. 株価データ取得（Alpha Vantageは1分5回制限のため12秒待機）
     stocks_data = []
     for name, ticker in STOCKS.items():
         data = get_stock_data(ticker, name)
         stocks_data.append(data)
-        print(f"  {name}: {data.get('price', 'エラー')} ({data.get('change_pct', '-')}%)")
-        time.sleep(1)
+        price = data.get("price", "エラー")
+        pct   = data.get("change_pct", "-")
+        day   = data.get("latest_day", "")
+        print(f"  {name}: {price} ({pct}%) ※{day}時点")
+        time.sleep(13)  # API制限対策（1分間に5回まで）
 
+    # 2. 銘柄別ニュース取得
     news_data = {}
     for name in STOCKS.keys():
         news = get_news(name)
         news_data[name] = news
         print(f"  {name}: ニュース{len(news)}件取得")
 
+    # 3. 業界ニュース取得
     industry_news = {}
     for industry, query in INDUSTRIES.items():
         news = get_news(query)
         industry_news[industry] = news
         print(f"  {industry}: ニュース{len(news)}件取得")
 
+    # 4. レポート生成
     print("🤖 Claudeでレポート生成中...")
     report = generate_report(stocks_data, news_data, industry_news)
 
@@ -181,6 +205,7 @@ def main():
     print(report)
     print("="*60)
 
+    # 5. メール送信
     if GMAIL_ADDRESS and GMAIL_PASSWORD and TO_ADDRESS:
         send_email(report)
     else:
