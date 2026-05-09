@@ -1,0 +1,31 @@
+name: 株式日次レポート自動送信
+
+on:
+  schedule:
+    # 毎朝8時（JST）に実行 ※GitHubはUTCなので-9時間 = 23:00 UTC
+    - cron: '0 23 * * 1-5'  # 平日のみ（月〜金）
+  workflow_dispatch:          # 手動実行ボタンも有効化
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 必要ライブラリのインストール
+        run: pip install -r requirements.txt
+
+      - name: 株式レポート生成＆送信
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_ADDRESS:     ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_PASSWORD:    ${{ secrets.GMAIL_PASSWORD }}
+          TO_ADDRESS:        ${{ secrets.TO_ADDRESS }}
+        run: python stock_report.py
