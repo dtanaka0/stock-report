@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import feedparser
 import markdown
+import yfinance as yf
 
 STOCKS = {
     "NVIDIA":           "NVDA",
@@ -30,10 +31,89 @@ ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY")
 ALPHA_VANTAGE_KEY  = os.environ.get("ALPHA_VANTAGE_KEY")
 
 # ============================================================
-# 1. 株価データ取得（Alpha Vantage）
+# 1-A. 株価データ取得（yfinance：メイン）
 # ============================================================
 
-def get_stock_data(ticker, name):
+def get_stock_data_yfinance(ticker, name):
+    """yfinanceで株価＋ファンダメンタルズを取得"""
+    try:
+        # GitHub ActionsのIPブロック回避：User-Agentを設定
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        })
+
+        stock = yf.Ticker(ticker, session=session)
+        hist  = stock.history(period="5d", auto_adjust=True)
+
+        if hist.empty:
+            print(f"  ⚠️ {name}: yfinanceデータなし → Alpha Vantageで再取得")
+            return None
+
+        latest = hist.iloc[-1]
+        prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
+        change     = float(latest["Close"]) - float(prev["Close"])
+        change_pct = (change / float(prev["Close"])) * 100
+
+        # ファンダメンタルズ情報
+        info = stock.info
+        pe_ratio    = info.get("trailingPE", "N/A")
+        market_cap  = info.get("marketCap", None)
+        week52_high = info.get("fiftyTwoWeekHigh", "N/A")
+        week52_low  = info.get("fiftyTwoWeekLow", "N/A")
+        analyst_rec = info.get("recommendationKey", "N/A")
+
+        # 時価総額を読みやすく変換
+        if market_cap:
+            if market_cap >= 1_000_000_000_000:
+                market_cap_str = f"${market_cap/1_000_000_000_000:.1f}兆"
+            else:
+                market_cap_str = f"${market_cap/1_000_000_000:.0f}十億"
+        else:
+            market_cap_str = "N/A"
+
+        # 5日間の履歴
+        history_5d = []
+        for i, (idx, row) in enumerate(hist.iterrows()):
+            history_5d.append({
+                "日付": str(idx.date()),
+                "終値": round(float(row["Close"]), 2),
+                "出来高": int(row["Volume"]),
+            })
+
+        return {
+            "name":         name,
+            "ticker":       ticker,
+            "source":       "yfinance",
+            "price":        round(float(latest["Close"]), 2),
+            "change":       round(change, 2),
+            "change_pct":   round(change_pct, 2),
+            "volume":       int(latest["Volume"]),
+            "5d_high":      round(float(hist["High"].max()), 2),
+            "5d_low":       round(float(hist["Low"].min()), 2),
+            "ma5":          round(float(hist["Close"].mean()), 2),
+            "pe_ratio":     pe_ratio,
+            "market_cap":   market_cap_str,
+            "52w_high":     week52_high,
+            "52w_low":      week52_low,
+            "analyst":      analyst_rec,
+            "history_5d":   history_5d,
+        }
+
+    except Exception as e:
+        print(f"  ⚠️ {name}: yfinanceエラー ({e}) → Alpha Vantageで再取得")
+        return None
+
+# ============================================================
+# 1-B. 株価データ取得（Alpha Vantage：フォールバック）
+# ============================================================
+
+def get_stock_data_alphavantage(ticker, name):
+    """Alpha Vantageでの株価取得（yfinance失敗時のバックアップ）"""
     try:
         url = (
             f"https://www.alphavantage.co/query"
@@ -48,29 +128,31 @@ def get_stock_data(ticker, name):
         if not quote or not quote.get("05. price"):
             return {"name": name, "ticker": ticker, "error": "データ取得失敗"}
 
-        price      = float(quote.get("05. price", 0))
-        change     = float(quote.get("09. change", 0))
-        change_pct = quote.get("10. change percent", "0%").replace("%", "")
-        volume     = int(quote.get("06. volume", 0))
-        high       = float(quote.get("03. high", 0))
-        low        = float(quote.get("04. low", 0))
-        prev_close = float(quote.get("08. previous close", 0))
-        latest_day = quote.get("07. latest trading day", "不明")
-
         return {
             "name":       name,
             "ticker":     ticker,
-            "price":      round(price, 2),
-            "change":     round(change, 2),
-            "change_pct": round(float(change_pct), 2),
-            "volume":     volume,
-            "high":       round(high, 2),
-            "low":        round(low, 2),
-            "prev_close": round(prev_close, 2),
-            "latest_day": latest_day,
+            "source":     "Alpha Vantage",
+            "price":      round(float(quote.get("05. price", 0)), 2),
+            "change":     round(float(quote.get("09. change", 0)), 2),
+            "change_pct": round(float(quote.get("10. change percent", "0%").replace("%", "")), 2),
+            "volume":     int(quote.get("06. volume", 0)),
+            "high":       round(float(quote.get("03. high", 0)), 2),
+            "low":        round(float(quote.get("04. low", 0)), 2),
+            "latest_day": quote.get("07. latest trading day", "不明"),
         }
     except Exception as e:
         return {"name": name, "ticker": ticker, "error": str(e)}
+
+# ============================================================
+# 1. 株価データ取得（yfinance優先、失敗時はAlpha Vantage）
+# ============================================================
+
+def get_stock_data(ticker, name):
+    data = get_stock_data_yfinance(ticker, name)
+    if data is not None:
+        return data
+    time.sleep(13)  # Alpha Vantage API制限対策
+    return get_stock_data_alphavantage(ticker, name)
 
 # ============================================================
 # 2. ニュース取得
@@ -104,7 +186,7 @@ def generate_report(stocks_data, news_data, industry_news):
 ## 今日の日付
 {today}
 
-## 株価データ（直近取引日）
+## 株価データ（yfinance または Alpha Vantage）
 {json.dumps(stocks_data, ensure_ascii=False, indent=2)}
 
 ## 銘柄別ニュース
@@ -135,13 +217,15 @@ Markdownで出力してください。以下の構成で作成してください
 | 終値 | $xxx |
 | 前日比 | +$x.xx (+x.xx%) |
 | 出来高 | xxx万株 |
-| 高値/安値 | $xxx / $xxx |
+| 高値/安値（当日） | $xxx / $xxx |
+| PER | xx倍（yfinanceデータがある場合） |
+| 時価総額 | $xxx兆（yfinanceデータがある場合） |
+| 52週高値/安値 | $xxx / $xxx（yfinanceデータがある場合） |
 
 （株価の特徴を2-3行で）
 
 #### 主要ニュース
-- ニュース要点1
-- ニュース要点2
+- ニュース要点
 
 #### 短期見通し（1〜2週間）
 （見通しを2-3行で）
@@ -177,13 +261,11 @@ Markdownで出力してください。以下の構成で作成してください
     return response.content[0].text
 
 # ============================================================
-# 4. MarkdownをHTMLに変換してメール送信
+# 4. HTMLメール送信
 # ============================================================
 
 def markdown_to_html(md_text):
-    """MarkdownをスタイリッシュなHTMLメールに変換"""
     html_body = markdown.markdown(md_text, extensions=["tables", "nl2br"])
-
     return f"""
 <!DOCTYPE html>
 <html>
@@ -207,87 +289,22 @@ def markdown_to_html(md_text):
     padding: 32px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }}
-  h1 {{
-    font-size: 22px;
-    color: #1a1a1a;
-    border-bottom: 3px solid #0066cc;
-    padding-bottom: 12px;
-    margin-bottom: 8px;
-  }}
-  h2 {{
-    font-size: 18px;
-    color: #0066cc;
-    margin-top: 32px;
-    margin-bottom: 12px;
-    border-left: 4px solid #0066cc;
-    padding-left: 10px;
-  }}
-  h3 {{
-    font-size: 16px;
-    color: #1a1a1a;
-    background: #f0f4ff;
-    padding: 10px 14px;
-    border-radius: 8px;
-    margin-top: 24px;
-  }}
-  h4 {{
-    font-size: 14px;
-    color: #444;
-    margin-top: 16px;
-    margin-bottom: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }}
-  table {{
-    width: 100%;
-    border-collapse: collapse;
-    margin: 12px 0;
-    font-size: 14px;
-  }}
-  th, td {{
-    padding: 8px 12px;
-    text-align: left;
-    border-bottom: 1px solid #e8e8e8;
-  }}
-  th {{
-    background: #f0f4ff;
-    color: #0066cc;
-    font-weight: 600;
-  }}
-  tr:hover td {{
-    background: #fafafa;
-  }}
-  ul, ol {{
-    padding-left: 20px;
-    margin: 8px 0;
-  }}
-  li {{
-    margin-bottom: 4px;
-  }}
-  strong {{
-    color: #1a1a1a;
-  }}
-  hr {{
-    border: none;
-    border-top: 1px solid #e8e8e8;
-    margin: 24px 0;
-  }}
-  blockquote {{
-    background: #fff8e1;
-    border-left: 4px solid #ffc107;
-    margin: 12px 0;
-    padding: 10px 16px;
-    border-radius: 0 8px 8px 0;
-    font-size: 13px;
-    color: #666;
-  }}
+  h1 {{ font-size: 22px; color: #1a1a1a; border-bottom: 3px solid #0066cc; padding-bottom: 12px; }}
+  h2 {{ font-size: 18px; color: #0066cc; margin-top: 32px; border-left: 4px solid #0066cc; padding-left: 10px; }}
+  h3 {{ font-size: 16px; color: #1a1a1a; background: #f0f4ff; padding: 10px 14px; border-radius: 8px; margin-top: 24px; }}
+  h4 {{ font-size: 14px; color: #444; margin-top: 16px; margin-bottom: 6px; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }}
+  th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #e8e8e8; }}
+  th {{ background: #f0f4ff; color: #0066cc; font-weight: 600; }}
+  ul, ol {{ padding-left: 20px; margin: 8px 0; }}
+  li {{ margin-bottom: 4px; }}
+  hr {{ border: none; border-top: 1px solid #e8e8e8; margin: 24px 0; }}
+  blockquote {{ background: #fff8e1; border-left: 4px solid #ffc107; margin: 12px 0; padding: 10px 16px; border-radius: 0 8px 8px 0; font-size: 13px; color: #666; }}
   p {{ margin: 8px 0; }}
 </style>
 </head>
 <body>
-  <div class="container">
-    {html_body}
-  </div>
+  <div class="container">{html_body}</div>
 </body>
 </html>
 """
@@ -301,12 +318,8 @@ def send_email(report):
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = ", ".join(to_addresses)
 
-    # プレーンテキスト版（フォールバック用）
     msg.attach(MIMEText(report, "plain", "utf-8"))
-
-    # HTML版（メインで表示される）
-    html = markdown_to_html(report)
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(MIMEText(markdown_to_html(report), "html", "utf-8"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
@@ -325,11 +338,11 @@ def main():
     for name, ticker in STOCKS.items():
         data = get_stock_data(ticker, name)
         stocks_data.append(data)
+        src   = data.get("source", "エラー")
         price = data.get("price", "エラー")
         pct   = data.get("change_pct", "-")
-        day   = data.get("latest_day", "")
-        print(f"  {name}: {price} ({pct}%) ※{day}時点")
-        time.sleep(13)
+        print(f"  {name}: {price} ({pct}%) [{src}]")
+        time.sleep(2)
 
     news_data = {}
     for name in STOCKS.keys():
