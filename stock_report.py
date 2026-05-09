@@ -36,16 +36,8 @@ ALPHA_VANTAGE_KEY  = os.environ.get("ALPHA_VANTAGE_KEY")
 
 def get_stock_data_yfinance(ticker, name):
     try:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        })
-
-        stock = yf.Ticker(ticker, session=session)
+        # ★ sessionを渡さずyfinanceに任せる（curl_cffiで自動ブロック回避）
+        stock = yf.Ticker(ticker)
         hist  = stock.history(period="5d", auto_adjust=True)
 
         if hist.empty:
@@ -57,7 +49,7 @@ def get_stock_data_yfinance(ticker, name):
         change     = float(latest["Close"]) - float(prev["Close"])
         change_pct = (change / float(prev["Close"])) * 100
 
-        # ★ fast_infoを使用（軽量で取得しやすい）
+        # fast_infoで時価総額・52週高値安値を取得
         fi = stock.fast_info
         market_cap_raw = getattr(fi, "market_cap", None)
         week52_high    = getattr(fi, "fifty_two_week_high", "N/A")
@@ -71,10 +63,10 @@ def get_stock_data_yfinance(ticker, name):
         else:
             market_cap_str = "N/A"
 
-        # PERはinfoから取るが失敗しても続行
+        # PERはinfoから取得（失敗しても続行）
         pe_ratio = "N/A"
         try:
-            info     = stock.get_info()
+            info     = stock.info
             pe_ratio = info.get("trailingPE", "N/A")
         except Exception:
             pass
@@ -114,7 +106,6 @@ def get_stock_data_yfinance(ticker, name):
 # ============================================================
 
 def get_stock_data_alphavantage(ticker, name):
-    """Alpha Vantageでの株価取得（yfinance失敗時のバックアップ）"""
     try:
         url = (
             f"https://www.alphavantage.co/query"
@@ -187,7 +178,7 @@ def generate_report(stocks_data, news_data, industry_news):
 ## 今日の日付
 {today}
 
-## 株価データ（yfinance または Alpha Vantage）
+## 株価データ（直近取引日）
 {json.dumps(stocks_data, ensure_ascii=False, indent=2)}
 
 ## 銘柄別ニュース
