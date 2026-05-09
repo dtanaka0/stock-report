@@ -2,9 +2,8 @@ name: 株式日次レポート自動送信
 
 on:
   schedule:
-    # 毎朝8時（JST）に実行 ※GitHubはUTCなので-9時間 = 22:00 UTC
-    - cron: '0 22 * * 1-5'  # 平日のみ（月〜金）
-  workflow_dispatch:          # 手動実行ボタンも有効化
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   send-report:
@@ -21,6 +20,13 @@ jobs:
 
       - name: 必要ライブラリのインストール
         run: pip install -r requirements.txt
+
+      - name: Secrets確認（値は隠れます）
+        run: |
+          echo "ANTHROPIC_API_KEY 登録済み: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
+          echo "GMAIL_ADDRESS 登録済み: ${{ secrets.GMAIL_ADDRESS != '' }}"
+          echo "GMAIL_PASSWORD 登録済み: ${{ secrets.GMAIL_PASSWORD != '' }}"
+          echo "TO_ADDRESS 登録済み: ${{ secrets.TO_ADDRESS != '' }}"
 
       - name: 株式レポート生成＆送信
         env:
