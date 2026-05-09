@@ -12,9 +12,11 @@ import anthropic
 import smtplib
 import os
 import json
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+from urllib.parse import quote  # ★ URLエンコード用に追加
 import feedparser
 
 # ============================================================
@@ -48,33 +50,39 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 def get_stock_data(ticker: str, name: str) -> dict:
     """過去5日間の株価データを取得"""
-    stock = yf.Ticker(ticker)
-    hist  = stock.history(period="5d")
+    try:
+        stock = yf.Ticker(ticker)
+        # ★ auto_adjust=Trueを明示してデータ取得
+        hist = stock.history(period="5d", auto_adjust=True)
 
-    if hist.empty:
-        return {"name": name, "ticker": ticker, "error": "データ取得失敗"}
+        if hist.empty:
+            print(f"  ⚠️ {name}({ticker}): データ空のためスキップ")
+            return {"name": name, "ticker": ticker, "error": "データ取得失敗"}
 
-    latest = hist.iloc[-1]
-    prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
+        latest = hist.iloc[-1]
+        prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
 
-    change     = latest["Close"] - prev["Close"]
-    change_pct = (change / prev["Close"]) * 100
+        change     = latest["Close"] - prev["Close"]
+        change_pct = (change / prev["Close"]) * 100
 
-    ma5  = hist["Close"].mean()
-    high = hist["High"].max()
-    low  = hist["Low"].min()
+        ma5  = hist["Close"].mean()
+        high = hist["High"].max()
+        low  = hist["Low"].min()
 
-    return {
-        "name":       name,
-        "ticker":     ticker,
-        "price":      round(latest["Close"], 2),
-        "change":     round(change, 2),
-        "change_pct": round(change_pct, 2),
-        "volume":     int(latest["Volume"]),
-        "ma5":        round(ma5, 2),
-        "5d_high":    round(high, 2),
-        "5d_low":     round(low, 2),
-    }
+        return {
+            "name":       name,
+            "ticker":     ticker,
+            "price":      round(float(latest["Close"]), 2),
+            "change":     round(float(change), 2),
+            "change_pct": round(float(change_pct), 2),
+            "volume":     int(latest["Volume"]),
+            "ma5":        round(float(ma5), 2),
+            "5d_high":    round(float(high), 2),
+            "5d_low":     round(float(low), 2),
+        }
+    except Exception as e:
+        print(f"  ⚠️ {name}({ticker}) 取得エラー: {e}")
+        return {"name": name, "ticker": ticker, "error": str(e)}
 
 # ============================================================
 # 2. ニュース取得（Google News RSS）
@@ -82,15 +90,21 @@ def get_stock_data(ticker: str, name: str) -> dict:
 
 def get_news(query: str, max_items: int = 5) -> list[str]:
     """Google News RSSからニュースを取得"""
-    url  = f"https://news.google.com/rss/search?q={query}&hl=ja&gl=JP&ceid=JP:ja"
-    feed = feedparser.parse(url)
+    try:
+        # ★ スペースや特殊文字をURLエンコード
+        encoded_query = quote(query)
+        url  = f"https://news.google.com/rss/search?q={encoded_query}&hl=ja&gl=JP&ceid=JP:ja"
+        feed = feedparser.parse(url)
 
-    news_list = []
-    for entry in feed.entries[:max_items]:
-        pub = entry.get("published", "")
-        news_list.append(f"・{entry.title}（{pub[:16]}）")
+        news_list = []
+        for entry in feed.entries[:max_items]:
+            pub = entry.get("published", "")
+            news_list.append(f"・{entry.title}（{pub[:16]}）")
 
-    return news_list if news_list else ["関連ニュースなし"]
+        return news_list if news_list else ["関連ニュースなし"]
+    except Exception as e:
+        print(f"  ⚠️ ニュース取得エラー ({query}): {e}")
+        return ["ニュース取得失敗"]
 
 # ============================================================
 # 3. Claude APIでレポート生成
@@ -141,6 +155,7 @@ def generate_report(stocks_data: list[dict], news_data: dict, industry_news: dic
 ### ③ 本日の総評
 5銘柄と業界動向を踏まえた全体コメントを150文字程度で。
 
+※ 株価データが「エラー」の銘柄はニュースと業界動向のみで分析してください。
 ※ あくまで参考情報です。最終判断は必ずご自身で行ってください。
 """
 
@@ -189,7 +204,10 @@ def main():
     for name, ticker in STOCKS.items():
         data = get_stock_data(ticker, name)
         stocks_data.append(data)
-        print(f"  {name}: {data.get('price', 'エラー')} ({data.get('change_pct', '-')}%)")
+        price = data.get("price", "エラー")
+        pct   = data.get("change_pct", "-")
+        print(f"  {name}: {price} ({pct}%)")
+        time.sleep(1)  # ★ API制限対策で1秒待機
 
     # 2. 銘柄別ニュース取得
     news_data = {}
@@ -221,4 +239,10 @@ def main():
         print("⚠️ メール設定未完了のため送信スキップ（コンソール出力のみ）")
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    try:
+        main()
+    except Exception as e:
+        print("❌ エラー発生:")
+        print(traceback.format_exc())
+        raise
