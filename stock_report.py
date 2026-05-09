@@ -35,9 +35,7 @@ ALPHA_VANTAGE_KEY  = os.environ.get("ALPHA_VANTAGE_KEY")
 # ============================================================
 
 def get_stock_data_yfinance(ticker, name):
-    """yfinanceで株価＋ファンダメンタルズを取得"""
     try:
-        # GitHub ActionsのIPブロック回避：User-Agentを設定
         session = requests.Session()
         session.headers.update({
             "User-Agent": (
@@ -59,26 +57,30 @@ def get_stock_data_yfinance(ticker, name):
         change     = float(latest["Close"]) - float(prev["Close"])
         change_pct = (change / float(prev["Close"])) * 100
 
-        # ファンダメンタルズ情報
-        info = stock.info
-        pe_ratio    = info.get("trailingPE", "N/A")
-        market_cap  = info.get("marketCap", None)
-        week52_high = info.get("fiftyTwoWeekHigh", "N/A")
-        week52_low  = info.get("fiftyTwoWeekLow", "N/A")
-        analyst_rec = info.get("recommendationKey", "N/A")
+        # ★ fast_infoを使用（軽量で取得しやすい）
+        fi = stock.fast_info
+        market_cap_raw = getattr(fi, "market_cap", None)
+        week52_high    = getattr(fi, "fifty_two_week_high", "N/A")
+        week52_low     = getattr(fi, "fifty_two_week_low", "N/A")
 
-        # 時価総額を読みやすく変換
-        if market_cap:
-            if market_cap >= 1_000_000_000_000:
-                market_cap_str = f"${market_cap/1_000_000_000_000:.1f}兆"
+        if market_cap_raw:
+            if market_cap_raw >= 1_000_000_000_000:
+                market_cap_str = f"${market_cap_raw/1_000_000_000_000:.1f}兆"
             else:
-                market_cap_str = f"${market_cap/1_000_000_000:.0f}十億"
+                market_cap_str = f"${market_cap_raw/1_000_000_000:.0f}十億"
         else:
             market_cap_str = "N/A"
 
-        # 5日間の履歴
+        # PERはinfoから取るが失敗しても続行
+        pe_ratio = "N/A"
+        try:
+            info     = stock.get_info()
+            pe_ratio = info.get("trailingPE", "N/A")
+        except Exception:
+            pass
+
         history_5d = []
-        for i, (idx, row) in enumerate(hist.iterrows()):
+        for idx, row in hist.iterrows():
             history_5d.append({
                 "日付": str(idx.date()),
                 "終値": round(float(row["Close"]), 2),
@@ -86,22 +88,21 @@ def get_stock_data_yfinance(ticker, name):
             })
 
         return {
-            "name":         name,
-            "ticker":       ticker,
-            "source":       "yfinance",
-            "price":        round(float(latest["Close"]), 2),
-            "change":       round(change, 2),
-            "change_pct":   round(change_pct, 2),
-            "volume":       int(latest["Volume"]),
-            "5d_high":      round(float(hist["High"].max()), 2),
-            "5d_low":       round(float(hist["Low"].min()), 2),
-            "ma5":          round(float(hist["Close"].mean()), 2),
-            "pe_ratio":     pe_ratio,
-            "market_cap":   market_cap_str,
-            "52w_high":     week52_high,
-            "52w_low":      week52_low,
-            "analyst":      analyst_rec,
-            "history_5d":   history_5d,
+            "name":       name,
+            "ticker":     ticker,
+            "source":     "yfinance",
+            "price":      round(float(latest["Close"]), 2),
+            "change":     round(change, 2),
+            "change_pct": round(change_pct, 2),
+            "volume":     int(latest["Volume"]),
+            "5d_high":    round(float(hist["High"].max()), 2),
+            "5d_low":     round(float(hist["Low"].min()), 2),
+            "ma5":        round(float(hist["Close"].mean()), 2),
+            "pe_ratio":   pe_ratio,
+            "market_cap": market_cap_str,
+            "52w_high":   week52_high,
+            "52w_low":    week52_low,
+            "history_5d": history_5d,
         }
 
     except Exception as e:
