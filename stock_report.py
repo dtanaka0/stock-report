@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import feedparser
+import markdown
 
 STOCKS = {
     "NVIDIA":           "NVDA",
@@ -33,7 +34,6 @@ ALPHA_VANTAGE_KEY  = os.environ.get("ALPHA_VANTAGE_KEY")
 # ============================================================
 
 def get_stock_data(ticker, name):
-    """Alpha Vantage APIで最新株価を取得（直近取引日のデータ）"""
     try:
         url = (
             f"https://www.alphavantage.co/query"
@@ -43,10 +43,9 @@ def get_stock_data(ticker, name):
         )
         response = requests.get(url, timeout=10)
         data     = response.json()
+        quote    = data.get("Global Quote", {})
 
-        quote = data.get("Global Quote", {})
-
-        if not quote or quote.get("05. price") is None:
+        if not quote or not quote.get("05. price"):
             return {"name": name, "ticker": ticker, "error": "データ取得失敗"}
 
         price      = float(quote.get("05. price", 0))
@@ -59,23 +58,22 @@ def get_stock_data(ticker, name):
         latest_day = quote.get("07. latest trading day", "不明")
 
         return {
-            "name":         name,
-            "ticker":       ticker,
-            "price":        round(price, 2),
-            "change":       round(change, 2),
-            "change_pct":   round(float(change_pct), 2),
-            "volume":       volume,
-            "high":         round(high, 2),
-            "low":          round(low, 2),
-            "prev_close":   round(prev_close, 2),
-            "latest_day":   latest_day,
+            "name":       name,
+            "ticker":     ticker,
+            "price":      round(price, 2),
+            "change":     round(change, 2),
+            "change_pct": round(float(change_pct), 2),
+            "volume":     volume,
+            "high":       round(high, 2),
+            "low":        round(low, 2),
+            "prev_close": round(prev_close, 2),
+            "latest_day": latest_day,
         }
-
     except Exception as e:
         return {"name": name, "ticker": ticker, "error": str(e)}
 
 # ============================================================
-# 2. ニュース取得（Google News RSS）
+# 2. ニュース取得
 # ============================================================
 
 def get_news(query, max_items=5):
@@ -86,7 +84,7 @@ def get_news(query, max_items=5):
         news_list = []
         for entry in feed.entries[:max_items]:
             pub = entry.get("published", "")
-            news_list.append(f"・{entry.title}（{pub[:16]}）")
+            news_list.append(f"- {entry.title}（{pub[:16]}）")
         return news_list if news_list else ["関連ニュースなし"]
     except Exception as e:
         return [f"ニュース取得失敗: {str(e)}"]
@@ -115,27 +113,60 @@ def generate_report(stocks_data, news_data, industry_news):
 ## 業界動向ニュース
 {json.dumps(industry_news, ensure_ascii=False, indent=2)}
 
-## レポート作成の指示
+## レポート出力形式の指示
+Markdownで出力してください。以下の構成で作成してください：
 
-### ① 各銘柄の分析（5銘柄それぞれ）
-1. 当日の株価サマリー（価格・騰落率・出来高の特徴）
-2. 主要ニュースの要点
-3. 短期見通し（今後1〜2週間）
-4. 売買判定：以下から1つ選び理由を3行以内で
-   - ✅ 買い増し推奨
-   - ⚠️ ホールド（様子見）
-   - 🔴 売り・利確検討
+---
 
-### ② 業界トレンドサマリー
-- 半導体業界：主要な動きと今後の注目点
-- 宇宙・防衛関連：主要な動きと今後の注目点
-- 保有銘柄との関連性コメント
+# 📊 個人投資家向け日次レポート
+**{today}**
 
-### ③ 本日の総評
-5銘柄と業界動向を踏まえた全体コメントを150文字程度で。
+---
 
-※ 株価データが「エラー」の銘柄はニュースと業界動向のみで分析してください。
-※ あくまで参考情報です。最終判断は必ずご自身で行ってください。
+## ① 銘柄別分析
+
+各銘柄を以下の形式で：
+
+### 🟢/🔴 銘柄名（ティッカー）｜ $価格 ▲▼騰落率%
+
+#### 株価サマリー
+| 項目 | 数値 |
+|------|------|
+| 終値 | $xxx |
+| 前日比 | +$x.xx (+x.xx%) |
+| 出来高 | xxx万株 |
+| 高値/安値 | $xxx / $xxx |
+
+（株価の特徴を2-3行で）
+
+#### 主要ニュース
+- ニュース要点1
+- ニュース要点2
+
+#### 短期見通し（1〜2週間）
+（見通しを2-3行で）
+
+#### 売買判定
+**✅ 買い増し推奨 / ⚠️ ホールド / 🔴 売り検討**
+（理由を2-3行で）
+
+---
+
+## ② 業界トレンド
+
+### 半導体業界
+（動向と注目点）
+
+### 宇宙・防衛関連
+（動向と注目点）
+
+---
+
+## ③ 本日の総評
+（全体コメント150文字程度）
+
+---
+⚠️ 本レポートは参考情報です。投資判断はご自身の責任で行ってください。
 """
 
     response = client.messages.create(
@@ -146,8 +177,120 @@ def generate_report(stocks_data, news_data, industry_news):
     return response.content[0].text
 
 # ============================================================
-# 4. メール送信
+# 4. MarkdownをHTMLに変換してメール送信
 # ============================================================
+
+def markdown_to_html(md_text):
+    """MarkdownをスタイリッシュなHTMLメールに変換"""
+    html_body = markdown.markdown(md_text, extensions=["tables", "nl2br"])
+
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #1a1a1a;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 20px;
+  }}
+  .container {{
+    max-width: 680px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }}
+  h1 {{
+    font-size: 22px;
+    color: #1a1a1a;
+    border-bottom: 3px solid #0066cc;
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+  }}
+  h2 {{
+    font-size: 18px;
+    color: #0066cc;
+    margin-top: 32px;
+    margin-bottom: 12px;
+    border-left: 4px solid #0066cc;
+    padding-left: 10px;
+  }}
+  h3 {{
+    font-size: 16px;
+    color: #1a1a1a;
+    background: #f0f4ff;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-top: 24px;
+  }}
+  h4 {{
+    font-size: 14px;
+    color: #444;
+    margin-top: 16px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 14px;
+  }}
+  th, td {{
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid #e8e8e8;
+  }}
+  th {{
+    background: #f0f4ff;
+    color: #0066cc;
+    font-weight: 600;
+  }}
+  tr:hover td {{
+    background: #fafafa;
+  }}
+  ul, ol {{
+    padding-left: 20px;
+    margin: 8px 0;
+  }}
+  li {{
+    margin-bottom: 4px;
+  }}
+  strong {{
+    color: #1a1a1a;
+  }}
+  hr {{
+    border: none;
+    border-top: 1px solid #e8e8e8;
+    margin: 24px 0;
+  }}
+  blockquote {{
+    background: #fff8e1;
+    border-left: 4px solid #ffc107;
+    margin: 12px 0;
+    padding: 10px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: #666;
+  }}
+  p {{ margin: 8px 0; }}
+</style>
+</head>
+<body>
+  <div class="container">
+    {html_body}
+  </div>
+</body>
+</html>
+"""
 
 def send_email(report):
     today        = datetime.now().strftime("%Y/%m/%d")
@@ -157,7 +300,13 @@ def send_email(report):
     msg["Subject"] = f"📊 株式日次レポート {today}"
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = ", ".join(to_addresses)
+
+    # プレーンテキスト版（フォールバック用）
     msg.attach(MIMEText(report, "plain", "utf-8"))
+
+    # HTML版（メインで表示される）
+    html = markdown_to_html(report)
+    msg.attach(MIMEText(html, "html", "utf-8"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
@@ -172,7 +321,6 @@ def send_email(report):
 def main():
     print("📈 株式レポート生成開始...")
 
-    # 1. 株価データ取得（Alpha Vantageは1分5回制限のため12秒待機）
     stocks_data = []
     for name, ticker in STOCKS.items():
         data = get_stock_data(ticker, name)
@@ -181,23 +329,20 @@ def main():
         pct   = data.get("change_pct", "-")
         day   = data.get("latest_day", "")
         print(f"  {name}: {price} ({pct}%) ※{day}時点")
-        time.sleep(13)  # API制限対策（1分間に5回まで）
+        time.sleep(13)
 
-    # 2. 銘柄別ニュース取得
     news_data = {}
     for name in STOCKS.keys():
         news = get_news(name)
         news_data[name] = news
         print(f"  {name}: ニュース{len(news)}件取得")
 
-    # 3. 業界ニュース取得
     industry_news = {}
     for industry, query in INDUSTRIES.items():
         news = get_news(query)
         industry_news[industry] = news
         print(f"  {industry}: ニュース{len(news)}件取得")
 
-    # 4. レポート生成
     print("🤖 Claudeでレポート生成中...")
     report = generate_report(stocks_data, news_data, industry_news)
 
@@ -205,7 +350,6 @@ def main():
     print(report)
     print("="*60)
 
-    # 5. メール送信
     if GMAIL_ADDRESS and GMAIL_PASSWORD and TO_ADDRESS:
         send_email(report)
     else:
