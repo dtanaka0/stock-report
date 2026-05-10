@@ -271,7 +271,16 @@ def make_comparison_chart(stocks_data):
 # 4. Claude APIでレポート生成
 # ============================================================
 
-prompt = f"""
+def generate_report(stocks_data, news_data, industry_news):
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    today  = datetime.now().strftime("%Y年%m月%d日")
+
+    stocks_for_prompt = [
+        {k: v for k, v in s.items() if k != "history_5d"}
+        for s in stocks_data
+    ]
+
+    prompt = f"""
 あなたは経験豊富な投資アナリストです。
 以下の株価データ・ニュース・業界動向を分析し、個人投資家向けの日次レポートを作成してください。
 
@@ -321,7 +330,7 @@ Markdownで以下の順番で必ず全セクションを出力してください
 
 ## ③ 銘柄別分析
 
-各銘柄を以下の形式で簡潔に：
+各銘柄を以下の形式で：
 
 ### 🟢/🔴 銘柄名（ティッカー）｜ $価格 ▲▼騰落率%
 
@@ -354,6 +363,13 @@ CHART_PLACEHOLDER
 ---
 ⚠️ 本レポートは参考情報です。投資判断はご自身の責任で行ってください。
 """
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=6000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text
 
 # ============================================================
 # 5. MarkdownをHTML化してグラフを埋め込む
