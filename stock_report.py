@@ -20,16 +20,15 @@ from matplotlib import rcParams
 rcParams["font.family"] = "DejaVu Sans"
 
 STOCKS = {
-    "NVIDIA":           "NVDA",
-    "Alphabet":         "GOOGL",
-    "SK Hynix":         "000660.KS",
-    "Linde":            "LIN",
-    "BWX Technologies": "BWXT",
+    "NVIDIA":   "NVDA",
+    "TSMC":     "TSM",
+    "Vistra":   "VST",
+    "Alphabet": "GOOGL",
 }
 
 INDUSTRIES = {
-    "半導体業界": "semiconductor+industry+2026",
-    "原子力業界": "nuclear+energy+industry+2026",
+    "半導体・AI業界":  "semiconductor+AI+industry+2026",
+    "原子力・電力業界": "nuclear+power+energy+AI+2026",
 }
 
 GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
@@ -76,7 +75,6 @@ def get_stock_data_yfinance(ticker, name):
         except Exception:
             pass
 
-        # グラフ用に履歴データを保持
         history_5d = []
         for idx, row in hist.iterrows():
             history_5d.append({
@@ -171,15 +169,13 @@ def get_news(query, max_items=5):
 # ============================================================
 
 COLORS = {
-    "NVIDIA":           "#76b900",
-    "Alphabet":         "#4285f4",
-    "SK Hynix":         "#e63946",
-    "Linde":            "#f4a261",
-    "BWX Technologies": "#7b2d8b",
+    "NVIDIA":   "#76b900",
+    "TSMC":     "#e63946",
+    "Vistra":   "#f4a261",
+    "Alphabet": "#4285f4",
 }
 
 def make_price_chart(stock_data):
-    """各銘柄の5日間株価チャートを生成"""
     history = stock_data.get("history_5d", [])
     if len(history) < 2:
         return None
@@ -189,15 +185,13 @@ def make_price_chart(stock_data):
     name   = stock_data["name"]
     color  = COLORS.get(name, "#0066cc")
     pct    = stock_data.get("change_pct", 0)
-    trend_color = "#2ecc71" if pct >= 0 else "#e74c3c"
 
     fig, ax = plt.subplots(figsize=(6, 2.5))
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#f8faff")
 
     ax.plot(dates, prices, color=color, linewidth=2.5, zorder=3)
-    ax.fill_between(dates, prices, min(prices) * 0.999,
-                    alpha=0.15, color=color)
+    ax.fill_between(dates, prices, min(prices) * 0.999, alpha=0.15, color=color)
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
     ax.tick_params(labelsize=8, colors="#666")
@@ -213,22 +207,20 @@ def make_price_chart(stock_data):
 
     plt.tight_layout()
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight",
-                facecolor="#ffffff")
+    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight", facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
 
 
 def make_comparison_chart(stocks_data):
-    """全銘柄の騰落率比較バーチャートを生成"""
-    names = []
-    pcts  = []
+    names  = []
+    pcts   = []
     colors = []
 
     for s in stocks_data:
         if "error" not in s:
-            names.append(s["name"].replace(" Technologies", ""))
+            names.append(s["name"])
             pct = s.get("change_pct", 0)
             pcts.append(pct)
             colors.append("#2ecc71" if pct >= 0 else "#e74c3c")
@@ -256,13 +248,11 @@ def make_comparison_chart(stocks_data):
     for spine in ax.spines.values():
         spine.set_color("#e0e0e0")
     ax.grid(axis="y", color="#e8e8e8", linestyle="--", linewidth=0.8)
-    ax.set_title("本日の騰落率比較", fontsize=10,
-                 fontweight="bold", color="#1a1a1a", pad=8)
+    ax.set_title("本日の騰落率比較", fontsize=10, fontweight="bold", color="#1a1a1a", pad=8)
 
     plt.tight_layout()
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight",
-                facecolor="#ffffff")
+    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight", facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
@@ -306,15 +296,15 @@ Markdownで以下の順番で必ず全セクションを出力してください
 
 ## ① 業界トレンド
 
-### 📡 半導体業界
-- 主要な動きと市場トレンド（3〜4行）
+### 📡 半導体・AI業界
+- 主要な動きと市場全体のトレンド（3〜4行）
 - 今後1〜2週間の注目ポイント
-- 保有銘柄（NVIDIA・SK Hynix）への影響
+- 保有銘柄（NVIDIA・TSMC）への影響
 
-### ⚛️ 原子力業界
-- 主要な動きと市場トレンド（3〜4行）
+### ⚛️ 原子力・電力業界
+- 主要な動きと市場全体のトレンド（3〜4行）
 - 今後1〜2週間の注目ポイント
-- 保有銘柄（BWX Technologies・Linde）への影響
+- 保有銘柄（Vistra）への影響
 
 ---
 
@@ -345,6 +335,7 @@ CHART_PLACEHOLDER
 | 高値/安値 | $xxx / $xxx |
 | PER | xx倍 |
 | 時価総額 | $xxx |
+| 52週高値/安値 | $xxx / $xxx |
 
 （株価の特徴を2行で）
 
@@ -358,7 +349,7 @@ CHART_PLACEHOLDER
 ---
 
 ## ④ 本日の総評
-（200文字程度）
+（4銘柄・業界動向・注目銘柄を踏まえた全体コメントを200文字程度で）
 
 ---
 ⚠️ 本レポートは参考情報です。投資判断はご自身の責任で行ってください。
@@ -376,9 +367,6 @@ CHART_PLACEHOLDER
 # ============================================================
 
 def build_html_email(md_text, stocks_data):
-    """グラフを生成してHTMLメールに埋め込む"""
-
-    # 比較チャートを生成
     comparison_b64 = make_comparison_chart(stocks_data)
     comparison_img = (
         f'<img src="data:image/png;base64,{comparison_b64}" '
@@ -386,7 +374,6 @@ def build_html_email(md_text, stocks_data):
         if comparison_b64 else ""
     )
 
-    # 各銘柄チャートを生成（名前をキーに）
     charts = {}
     for s in stocks_data:
         b64 = make_price_chart(s)
@@ -396,7 +383,6 @@ def build_html_email(md_text, stocks_data):
                 f'style="width:100%;max-width:580px;margin:8px 0;" />'
             )
 
-    # CHART_PLACEHOLDERを各銘柄チャートに置換
     current_stock = [None]
 
     def replace_placeholder(line):
@@ -414,14 +400,8 @@ def build_html_email(md_text, stocks_data):
     lines = [replace_placeholder(l) for l in lines]
     md_text_replaced = "\n".join(lines)
 
-    html_body = markdown.markdown(
-        md_text_replaced, extensions=["tables", "nl2br"]
-    )
-
-    # 比較チャートをレポート先頭に挿入
-    html_body = html_body.replace(
-        "<hr />", comparison_img + "<hr />", 1
-    )
+    html_body = markdown.markdown(md_text_replaced, extensions=["tables", "nl2br"])
+    html_body = html_body.replace("<hr />", comparison_img + "<hr />", 1)
 
     return f"""<!DOCTYPE html>
 <html>
@@ -438,12 +418,9 @@ def build_html_email(md_text, stocks_data):
     border-radius: 12px; padding: 32px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }}
-  h1 {{ font-size: 22px; color: #1a1a1a;
-        border-bottom: 3px solid #0066cc; padding-bottom: 12px; }}
-  h2 {{ font-size: 18px; color: #0066cc; margin-top: 32px;
-        border-left: 4px solid #0066cc; padding-left: 10px; }}
-  h3 {{ font-size: 16px; color: #1a1a1a; background: #f0f4ff;
-        padding: 10px 14px; border-radius: 8px; margin-top: 24px; }}
+  h1 {{ font-size: 22px; color: #1a1a1a; border-bottom: 3px solid #0066cc; padding-bottom: 12px; }}
+  h2 {{ font-size: 18px; color: #0066cc; margin-top: 32px; border-left: 4px solid #0066cc; padding-left: 10px; }}
+  h3 {{ font-size: 16px; color: #1a1a1a; background: #f0f4ff; padding: 10px 14px; border-radius: 8px; margin-top: 24px; }}
   h4 {{ font-size: 14px; color: #444; margin-top: 16px; margin-bottom: 6px; }}
   table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }}
   th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #e8e8e8; }}
@@ -451,9 +428,7 @@ def build_html_email(md_text, stocks_data):
   ul, ol {{ padding-left: 20px; margin: 8px 0; }}
   li {{ margin-bottom: 4px; }}
   hr {{ border: none; border-top: 1px solid #e8e8e8; margin: 24px 0; }}
-  blockquote {{ background: #fff8e1; border-left: 4px solid #ffc107;
-                margin: 12px 0; padding: 10px 16px;
-                border-radius: 0 8px 8px 0; font-size: 13px; color: #666; }}
+  blockquote {{ background: #fff8e1; border-left: 4px solid #ffc107; margin: 12px 0; padding: 10px 16px; border-radius: 0 8px 8px 0; font-size: 13px; color: #666; }}
   p {{ margin: 8px 0; }}
   img {{ border-radius: 8px; }}
 </style>
