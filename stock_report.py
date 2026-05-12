@@ -355,12 +355,23 @@ CHART_PLACEHOLDER
 ⚠️ 本レポートは参考情報です。投資判断はご自身の責任で行ってください。
 """
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=6000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text
+import time as time_module
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=6000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  ⚠️ API呼び出し失敗（{attempt+1}回目）: {e}")
+                print(f"  30秒後にリトライします...")
+                time_module.sleep(30)
+            else:
+                raise
 
 # ============================================================
 # 5. MarkdownをHTML化してグラフを埋め込む
