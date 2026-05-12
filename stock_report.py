@@ -272,12 +272,12 @@ def generate_report(stocks_data, news_data, industry_news):
 
     prompt = f"""
 あなたは経験豊富な投資アナリストです。
-以下の株価データ・ニュース・業界動向を分析し、個人投資家向けの日次レポートを作成してください。
+以下を分析し個人投資家向けの日次レポートを作成してください。
 
 ## 今日の日付
 {today}
 
-## 株価データ（直近取引日）
+## 株価データ
 {json.dumps(stocks_for_prompt, ensure_ascii=False, indent=2)}
 
 ## 銘柄別ニュース
@@ -286,8 +286,8 @@ def generate_report(stocks_data, news_data, industry_news):
 ## 業界動向ニュース
 {json.dumps(industry_news, ensure_ascii=False, indent=2)}
 
-## レポート出力形式の指示
-Markdownで以下の順番で必ず全セクションを出力してください：
+## レポート出力形式
+Markdownで以下の順番で出力してください：
 
 # 📊 個人投資家向け日次レポート
 **{today}**
@@ -314,7 +314,6 @@ Markdownで以下の順番で必ず全セクションを出力してください
 
 | 銘柄名（ティッカー） | 注目理由 | リスク | 短期期待値 |
 |---|---|---|---|
-| 例 | 理由 | リスク | 高/中/低 |
 
 ---
 
@@ -335,7 +334,6 @@ CHART_PLACEHOLDER
 | 高値/安値 | $xxx / $xxx |
 | PER | xx倍 |
 | 時価総額 | $xxx |
-| 52週高値/安値 | $xxx / $xxx |
 
 （株価の特徴を2行で）
 
@@ -349,13 +347,13 @@ CHART_PLACEHOLDER
 ---
 
 ## ④ 本日の総評
-（4銘柄・業界動向・注目銘柄を踏まえた全体コメントを200文字程度で）
+（200文字程度）
 
 ---
 ⚠️ 本レポートは参考情報です。投資判断はご自身の責任で行ってください。
 """
 
-import time as time_module
+    import time as time_module
     max_retries = 3
     for attempt in range(max_retries):
         try:
