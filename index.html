@@ -1,1 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📊 Portfolio Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    padding: 16px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #e6edf3;
+  }
+
+  .api-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  input[type="password"] {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 13px;
+    padding: 8px 12px;
+    width: 220px;
+    outline: none;
+  }
+
+  input[type="password"]::placeholder { color: #6e7681; }
+  input[type="password"]:focus { border-color: #58a6ff; }
+
+  button {
+    background: #238636;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 16px;
+    transition: background 0.15s;
+  }
+
+  button:hover { background: #2ea043; }
+  button:disabled { background: #21262d; color: #6e7681; cursor: not-allowed; }
+
+  #status {
+    font-size: 12px;
+    color: #8b949e;
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .metric-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+
+  .metric-name { font-size: 11px; color: #8b949e; margin-bottom: 6px; letter-spacing: 0.3px; }
+  .metric-price { font-size: 24px; font-weight: 600; line-height: 1; }
+  .metric-change { font-size: 12px; margin-top: 4px; }
+  .up { color: #3fb950; }
+  .down { color: #f85149; }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  .chart-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+
+  .chart-name { font-size: 13px; font-weight: 500; }
+  .chart-pct { font-size: 12px; }
+  .chart-wrap { position: relative; height: 150px; }
+
+  .footer {
+    margin-top: 16px;
+    font-size: 11px;
+    color: #6e7681;
+    text-align: center;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  #lastUpdated {
+    font-size: 11px;
+    color: #6e7681;
+  }
+
+  @media (max-width: 480px) {
+    input[type="password"] { width: 100%; }
+    .api-row { width: 100%; }
+    .metric-price { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📊 Portfolio Dashboard</h1>
+    <div id="lastUpdated"></div>
+  </div>
+  <div class="api-row">
+    <input type="password" id="apiKey" placeholder="Alpha Vantage API Key" />
+    <button id="loadBtn" onclick="loadAll()">更新</button>
+    <span id="status"></span>
+  </div>
+</header>
+
+<div class="metrics" id="metrics">
+  <div class="metric-card"><div class="metric-name">NVIDIA (NVDA)</div><div class="metric-price" style="color:#8b949e;">---</div></div>
+  <div class="metric-card"><div class="metric-name">TSMC (TSM)</div><div class="metric-price" style="color:#8b949e;">---</div></div>
+  <div class="metric-card"><div class="metric-name">Vistra (VST)</div><div class="metric-price" style="color:#8b949e;">---</div></div>
+  <div class="metric-card"><div class="metric-name">Alphabet (GOOGL)</div><div class="metric-price" style="color:#8b949e;">---</div></div>
+</div>
+
+<div class="charts">
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-name"><span class="dot" style="background:#76b900;"></span>NVIDIA (NVDA)</span>
+      <span class="chart-pct" id="pct-nvda">—</span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-nvda" role="img" aria-label="NVIDIA 30-day price chart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-name"><span class="dot" style="background:#e63946;"></span>TSMC (TSM)</span>
+      <span class="chart-pct" id="pct-tsm">—</span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-tsm" role="img" aria-label="TSMC 30-day price chart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-name"><span class="dot" style="background:#f4a261;"></span>Vistra (VST)</span>
+      <span class="chart-pct" id="pct-vst">—</span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-vst" role="img" aria-label="Vistra 30-day price chart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-name"><span class="dot" style="background:#4285f4;"></span>Alphabet (GOOGL)</span>
+      <span class="chart-pct" id="pct-googl">—</span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-googl" role="img" aria-label="Alphabet 30-day price chart"></canvas></div>
+  </div>
+</div>
+
+<div class="footer">データ: Alpha Vantage &nbsp;|&nbsp; 直近取引日終値ベース &nbsp;|&nbsp; 無料枠 25回/日</div>
+
+<script>
+const STOCKS = [
+  { id:'nvda', ticker:'NVDA', color:'#76b900' },
+  { id:'tsm',  ticker:'TSM',  color:'#e63946' },
+  { id:'vst',  ticker:'VST',  color:'#f4a261' },
+  { id:'googl',ticker:'GOOGL',color:'#4285f4' },
+];
+
+const NAMES = { nvda:'NVIDIA (NVDA)', tsm:'TSMC (TSM)', vst:'Vistra (VST)', googl:'Alphabet (GOOGL)' };
+const charts = {};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchQuote(ticker, key) {
+  const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${key}`);
+  return (await r.json())['Global Quote'];
+}
+
+async function fetchDaily(ticker, key) {
+  const r = await fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&outputsize=compact&apikey=${key}`);
+  return (await r.json())['Time Series (Daily)'];
+}
+
+function renderMetric(s, q) {
+  const price = parseFloat(q['05. price']);
+  const chg   = parseFloat(q['09. change']);
+  const pct   = parseFloat(q['10. change percent']);
+  const up    = chg >= 0;
+  const arrow = up ? '▲' : '▼';
+  const cls   = up ? 'up' : 'down';
+
+  document.getElementById('metrics').children[STOCKS.findIndex(x=>x.id===s.id)].innerHTML = `
+    <div class="metric-name">${NAMES[s.id]}</div>
+    <div class="metric-price">$${price.toFixed(2)}</div>
+    <div class="metric-change ${cls}">${arrow} ${Math.abs(chg).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>
+  `;
+}
+
+function renderChart(s, ts) {
+  const entries = Object.entries(ts).slice(0, 30).reverse();
+  const labels  = entries.map(([d]) => d.slice(5));
+  const prices  = entries.map(([, v]) => parseFloat(v['4. close']));
+  const first = prices[0], last = prices[prices.length - 1];
+  const pct = ((last - first) / first * 100).toFixed(1);
+  const up  = last >= first;
+
+  document.getElementById(`pct-${s.id}`).innerHTML =
+    `<span class="${up?'up':'down'}">${up?'▲':'▼'}${Math.abs(pct)}%（30日）</span>`;
+
+  if (charts[s.id]) charts[s.id].destroy();
+
+  charts[s.id] = new Chart(document.getElementById(`chart-${s.id}`), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: prices,
+        borderColor: s.color,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        backgroundColor: s.color + '22',
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `$${ctx.parsed.y.toFixed(2)}` } }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#6e7681', font: { size: 10 }, maxTicksLimit: 5, maxRotation: 0 }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#6e7681', font: { size: 10 }, callback: v => '$' + v.toFixed(0) },
+          position: 'right'
+        }
+      }
+    }
+  });
+}
+
+async function loadAll() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) { document.getElementById('status').textContent = 'APIキーを入力してください'; return; }
+
+  const btn = document.getElementById('loadBtn');
+  btn.disabled = true;
+  document.getElementById('status').textContent = '取得中...';
+
+  try {
+    for (const s of STOCKS) {
+      document.getElementById('status').textContent = `${s.ticker} 取得中...`;
+      const q = await fetchQuote(s.ticker, key);
+      if (q && q['05. price']) renderMetric(s, q);
+      await sleep(13000);
+    }
+
+    for (const s of STOCKS) {
+      document.getElementById('status').textContent = `${s.ticker} チャート取得中...`;
+      const ts = await fetchDaily(s.ticker, key);
+      if (ts) renderChart(s, ts);
+      await sleep(13000);
+    }
+
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent =
+      `最終更新: ${now.toLocaleDateString('ja-JP')} ${now.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}`;
+    document.getElementById('status').textContent = '✓ 完了';
+  } catch (e) {
+    document.getElementById('status').textContent = 'エラー: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
